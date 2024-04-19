@@ -1,23 +1,30 @@
 # импортируем библиотеки
-import logging
-import random
-
 from flask import Flask, request, jsonify
+import logging
 
+# создаём приложение
+# мы передаём __name__, в нём содержится информация,
+# в каком модуле мы находимся.
+# В данном случае там содержится '__main__',
+# так как мы обращаемся к переменной из запущенного модуля.
+# если бы такое обращение, например, произошло внутри модуля logging,
+# то мы бы получили 'logging'
 app = Flask(__name__)
 
+# Устанавливаем уровень логирования
 logging.basicConfig(level=logging.INFO)
-sessionStorage = {
-    'E8CE48D4050F69DC9457CAD77F0637CFF920653017BC98EA2ED0BA68978BE019':{
-            'cities': [ {
-                'title': 'Париж',
-                'imgs': ['1540737/a85f7166d351e5e8ec92', '1030494/c58e1c4c948099d394c2'],
-                'current_img': 0
-            }
-        ],
-            'current_city':0
-        }
-}
+
+# Создадим словарь, чтобы для каждой сессии общения
+# с навыком хранились подсказки, которые видел пользователь.
+# Это поможет нам немного разнообразить подсказки ответов
+# (buttons в JSON ответа).
+# Когда новый пользователь напишет нашему навыку,
+# то мы сохраним в этот словарь запись формата
+# sessionStorage[user_id] = {'suggests': ["Не хочу.", "Не буду.", "Отстань!" ]}
+# Такая запись говорит, что мы показали пользователю эти три подсказки.
+# Когда он откажется купить слона,
+# то мы уберем одну подсказку. Как будто что-то меняется :)
+sessionStorage = {}
 
 
 @app.route('/', methods=['POST'])
@@ -25,7 +32,7 @@ sessionStorage = {
 # Внутри функции доступен request.json - это JSON,
 # который отправила нам Алиса в запросе POST
 def main():
-    logging.info('Request: %r', request.json)
+    logging.info(f'Request: {request.json!r}')
 
     # Начинаем формировать ответ, согласно документации
     # мы собираем словарь, который потом отдадим Алисе
@@ -42,14 +49,13 @@ def main():
     # непосредственно за ведение диалога
     handle_dialog(request.json, response)
 
-    logging.info('Response: %r', request.json)
+    logging.info(f'Response:  {response!r}')
 
     # Преобразовываем в JSON и возвращаем
     return jsonify(response)
 
 
 def handle_dialog(req, res):
-    global current
     user_id = req['session']['user_id']
 
     if req['session']['new']:
@@ -58,62 +64,67 @@ def handle_dialog(req, res):
         # Запишем подсказки, которые мы ему покажем в первый раз
 
         sessionStorage[user_id] = {
-            'cities': [ {
-                'title': 'Париж',
-                'imgs': ['1540737/a85f7166d351e5e8ec92', '1030494/c58e1c4c948099d394c2'],
-                'current_img': 0
-            },
-               {
-                'title': 'Москва',
-                'imgs': ['997614/b545bb607ed4ba6937c1', '1533899/12ede26b423a21640b82'],
-                'current_img': 0
-            }
-        ],
-            'current_city':0
+            'suggests': [
+                "Не хочу.",
+                "Не буду.",
+                "Отстань!",
+            ]
         }
-
         # Заполняем текст ответа
-        res['response']['text'] = 'Привет!'
+        res['response']['text'] = 'Привет! Купи слона!'
         # Получим подсказки
-        cities = sessionStorage[user_id]['cities']
-        sessionStorage[user_id]['current_city']=random.choice(range(len(cities)))
-        city = cities[sessionStorage[user_id]['current_city']]
-        print(0,city)
-        res['response']['card'] = {}
-        res['response']['card']['type'] = 'BigImage'
-        res['response']['card']['title'] = ' Какой это город?'
-        res['response']['card']['image_id'] = city['imgs'][city['current_img']]
+        res['response']['buttons'] = get_suggests(user_id)
         return
 
     # Сюда дойдем только, если пользователь не новый,
     # и разговор с Алисой уже был начат
-    user_text = req['request']['original_utterance'].lower()
-    cities = sessionStorage[user_id]['cities']
-    city = cities[sessionStorage[user_id]['current_city']]
-    print(city)
-    if city['title'].lower() in get_city(req):
-            res['response']['text'] = f"Ты угадал - это {city['title']}!"
-            cities[sessionStorage[user_id]['current_city']]['current_img'] = (city['current_img']+1)%2 #след картинку
-            sessionStorage[user_id]['current_city']=random.choice(range(len(cities)))
-            city = cities[sessionStorage[user_id]['current_city']]
-            res['response']['card'] = {}
-            res['response']['card']['type'] = 'BigImage'
-            res['response']['card']['title'] = ' Какой это город?'
-            res['response']['card']['image_id'] = city['imgs'][city['current_img']]
+    # Обрабатываем ответ пользователя.
+    # В req['request']['original_utterance'] лежит весь текст,
+    # что нам прислал пользователь
+    # Если он написал 'ладно', 'куплю', 'покупаю', 'хорошо',
+    # то мы считаем, что пользователь согласился.
+    # Подумайте, всё ли в этом фрагменте написано "красиво"?
+    if req['request']['original_utterance'].lower() in [
+        'ладно',
+        'куплю',
+        'покупаю',
+        'хорошо'
+    ]:
+        # Пользователь согласился, прощаемся.
+        res['response']['text'] = 'Слона можно найти на Яндекс.Маркете!'
+        res['response']['end_session'] = True
+        return
 
-    else:
-            res['response']['text'] = f"Не угадал!"
+    # Если нет, то убеждаем его купить слона!
+    res['response']['text'] = \
+        f"Все говорят '{req['request']['original_utterance']}', а ты купи слона!"
+    res['response']['buttons'] = get_suggests(user_id)
 
-    return
 
+# Функция возвращает две подсказки для ответа.
+def get_suggests(user_id):
+    session = sessionStorage[user_id]
 
+    # Выбираем две первые подсказки из массива.
+    suggests = [
+        {'title': suggest, 'hide': True}
+        for suggest in session['suggests'][:2]
+    ]
 
-def get_city(req):
-    cities=[]
-    for item in req['request']['nlu']['entities']:
-        if item['type']=='YANDEX.GEO':
-            cities.append(item['value']['city'])
-    return cities
+    # Убираем первую подсказку, чтобы подсказки менялись каждый раз.
+    session['suggests'] = session['suggests'][1:]
+    sessionStorage[user_id] = session
+
+    # Если осталась только одна подсказка, предлагаем подсказку
+    # со ссылкой на Яндекс.Маркет.
+    if len(suggests) < 2:
+        suggests.append({
+            "title": "Ладно",
+            "url": "https://market.yandex.ru/search?text=слон",
+            "hide": True
+        })
+
+    return suggests
 
 
 if __name__ == '__main__':
