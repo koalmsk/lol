@@ -27,6 +27,8 @@ logging.basicConfig(level=logging.INFO)
 sessionStorage = {}
 
 
+
+
 @app.route('/', methods=['POST'])
 # Функция получает тело запроса и возвращает ответ.
 # Внутри функции доступен request.json - это JSON,
@@ -68,14 +70,18 @@ def handle_dialog(req, res):
                 "Не хочу.",
                 "Не буду.",
                 "Отстань!",
-            ]
+            ],
+            "animal": "cлона"
         }
+        
+        
+       
         # Заполняем текст ответа
-        res['response']['text'] = 'Привет! Купи слона!'
+        res['response']['text'] = f'Привет! Купи {sessionStorage[user_id]["animal"]}!'
         # Получим подсказки
         res['response']['buttons'] = get_suggests(user_id)
         return
-
+        
     # Сюда дойдем только, если пользователь не новый,
     # и разговор с Алисой уже был начат
     # Обрабатываем ответ пользователя.
